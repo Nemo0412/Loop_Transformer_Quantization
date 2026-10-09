@@ -1,0 +1,43 @@
+{
+  "model": "ByteDance/Ouro-1.4B",
+  "loops": 8,
+  "seq_len": 1024,
+  "n_eval_seq": 48,
+  "n_eval_tokens": 49152,
+  "group_size": 128,
+  "baseline": "fp32",
+  "configs": [
+    "INT8",
+    "INT4",
+    "FP8"
+  ],
+  "quant_lm_head": false,
+  "device": "NVIDIA L40S",
+  "low_bit_kernel_used": false,
+  "storage": {
+    "INT8": {
+      "n_quant_linears": 168,
+      "n_quant_params": 1233125376,
+      "packed_weight_bytes": 1233125376.0,
+      "scale_zp_bytes": 28901376.0,
+      "fp32_linear_bytes": 4932501504.0,
+      "low_bit_kernel_used": false
+    },
+    "INT4": {
+      "n_quant_linears": 168,
+      "n_quant_params": 1233125376,
+      "packed_weight_bytes": 616562688.0,
+      "scale_zp_bytes": 28901376.0,
+      "fp32_linear_bytes": 4932501504.0,
+      "low_bit_kernel_used": false
+    },
+    "FP8": {
+      "n_quant_linears": 168,
+      "n_quant_params": 1233125376,
+      "packed_weight_bytes": 1233125376.0,
+      "scale_zp_bytes": 19267584.0,
+      "fp32_linear_bytes": 4932501504.0,
+      "low_bit_kernel_used": false
+    }
+  }
+}

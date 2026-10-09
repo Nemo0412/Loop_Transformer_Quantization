@@ -1,0 +1,47 @@
+{
+  "device": "NVIDIA L40S",
+  "scheme": "asymmetric",
+  "low_bit_kernel_used": false,
+  "quant_simulation": "fake_quant_dequantized_fp32_matmul",
+  "ran_exp4": true,
+  "gate_reason": "Oracle recovery is meaningful: INT2 loops=6 mode=every_except_final alpha=1.0 closes 91.8% of a PPL gap of 727.671.",
+  "eval_sha256": "ff8b6d507cfc56c716bdda2e1ffffe1e5c7a34b4dce0d2ecec8f953fa8f348b1",
+  "storage": {
+    "4": {
+      "n_quant_params": 5619712,
+      "n_core_params": 4014080,
+      "n_groups": 44800,
+      "packed_weight_bytes": 2809856.0,
+      "scale_zp_bytes": 134400.0,
+      "storage_bytes": 2944256.0,
+      "core_storage_bytes": 2103040.0,
+      "fp32_linear_bytes": 22478848.0,
+      "low_bit_kernel_used": false,
+      "quant_simulation": "fake_quant_dequantized_fp32_matmul"
+    },
+    "3": {
+      "n_quant_params": 5619712,
+      "n_core_params": 4014080,
+      "n_groups": 44800,
+      "packed_weight_bytes": 2107392.0,
+      "scale_zp_bytes": 134400.0,
+      "storage_bytes": 2241792.0,
+      "core_storage_bytes": 1601280.0,
+      "fp32_linear_bytes": 22478848.0,
+      "low_bit_kernel_used": false,
+      "quant_simulation": "fake_quant_dequantized_fp32_matmul"
+    },
+    "2": {
+      "n_quant_params": 5619712,
+      "n_core_params": 4014080,
+      "n_groups": 44800,
+      "packed_weight_bytes": 1404928.0,
+      "scale_zp_bytes": 134400.0,
+      "storage_bytes": 1539328.0,
+      "core_storage_bytes": 1099520.0,
+      "fp32_linear_bytes": 22478848.0,
+      "low_bit_kernel_used": false,
+      "quant_simulation": "fake_quant_dequantized_fp32_matmul"
+    }
+  }
+}

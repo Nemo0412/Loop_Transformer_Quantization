@@ -1,0 +1,7 @@
+{
+  "device": "NVIDIA L40S",
+  "low_bit_kernel_used": false,
+  "ran_exp4": true,
+  "reason": "v1: Oracle recovery is meaningful: INT3 H=2 after_loop_1 alpha=0.5 closes 340.1% of the CE gap and changes exact accuracy by +0.010. v2: Oracle recovery is meaningful: INT2 H=2 after_loop_1 alpha=1.0 closes 100.4% of the CE gap and changes exact accuracy by +0.042.",
+  "verdict": "The strongest full-state correction before later H cycles is v1 INT4 at 4 H cycles, closing 1500.0% of the stablemax CE gap and moving exact accuracy by +0.000. The best rank-16 independent map (v1 INT4, 4 H cycles) closes 29307.4% of the CE gap, 1954% of the oracle's recovery, with 98304 extra FP32 parameters. Cross-loop linear feedback is promising enough to study further, still as fake quantization rather than a faster kernel."
+}

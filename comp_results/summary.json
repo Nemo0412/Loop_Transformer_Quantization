@@ -1,0 +1,18 @@
+{
+  "device": "NVIDIA L40S",
+  "n_eval_tokens": 324608,
+  "n_eval_predictions": 324291,
+  "bits": [
+    4,
+    3,
+    2
+  ],
+  "loops": [
+    2,
+    4,
+    6,
+    8
+  ],
+  "low_bit_kernel_used": false,
+  "fp_state_at_inference": false
+}
