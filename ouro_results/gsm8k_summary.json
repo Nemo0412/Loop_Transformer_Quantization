@@ -1,0 +1,117 @@
+{
+  "model": "ByteDance/Ouro-1.4B",
+  "compute_dtype": "bfloat16",
+  "group_size": 128,
+  "configs": [
+    "FP",
+    "INT8",
+    "INT4",
+    "FP8"
+  ],
+  "loops": [
+    2,
+    4,
+    8
+  ],
+  "n_problems": 200,
+  "max_new_tokens": 256,
+  "prompt": "8-shot CoT, greedy",
+  "rows": [
+    {
+      "model": "ouro_1.4b",
+      "quant": "FP",
+      "loops": 2,
+      "n_problems": 200,
+      "accuracy": 0.7,
+      "n_correct": 140
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "INT8",
+      "loops": 2,
+      "n_problems": 200,
+      "accuracy": 0.68,
+      "n_correct": 136
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "INT4",
+      "loops": 2,
+      "n_problems": 200,
+      "accuracy": 0.56,
+      "n_correct": 112
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "FP8",
+      "loops": 2,
+      "n_problems": 200,
+      "accuracy": 0.7,
+      "n_correct": 140
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "FP",
+      "loops": 4,
+      "n_problems": 200,
+      "accuracy": 0.79,
+      "n_correct": 158
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "INT8",
+      "loops": 4,
+      "n_problems": 200,
+      "accuracy": 0.78,
+      "n_correct": 156
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "INT4",
+      "loops": 4,
+      "n_problems": 200,
+      "accuracy": 0.73,
+      "n_correct": 146
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "FP8",
+      "loops": 4,
+      "n_problems": 200,
+      "accuracy": 0.805,
+      "n_correct": 161
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "FP",
+      "loops": 8,
+      "n_problems": 200,
+      "accuracy": 0.785,
+      "n_correct": 157
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "INT8",
+      "loops": 8,
+      "n_problems": 200,
+      "accuracy": 0.765,
+      "n_correct": 153
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "INT4",
+      "loops": 8,
+      "n_problems": 200,
+      "accuracy": 0.6,
+      "n_correct": 120
+    },
+    {
+      "model": "ouro_1.4b",
+      "quant": "FP8",
+      "loops": 8,
+      "n_problems": 200,
+      "accuracy": 0.725,
+      "n_correct": 145
+    }
+  ]
+}

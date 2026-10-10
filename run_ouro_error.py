@@ -83,6 +83,12 @@ def parse_args():
                    help="also quantize the (non-looped) lm_head")
     p.add_argument("--decompose", action="store_true",
                    help="measure e_{t+1} = p_t + q_t (propagation vs injection)")
+    p.add_argument("--jacobian", action="store_true",
+                   help="test whether J_t and B_t are loop-invariant")
+    p.add_argument("--n-probes", type=int, default=4,
+                   help="random probe directions for the finite-difference Jacobian")
+    p.add_argument("--probe-delta", type=float, default=1e-2,
+                   help="probe size relative to the mean hidden-state norm")
     p.add_argument("--smoke", action="store_true")
     return p.parse_args()
 
@@ -339,8 +345,15 @@ def decompose_config(model, targets, stash, label, cfg, args, eval_tokens, devic
         p_rms = a["p"] / n
         q_rms = a["q"] / n
         gain = a["gain"] / a["gainn"] if a["gainn"] else float("nan")
-        # plateau implied by a linear fixed point e* = q / (1 - gain)
-        implied = q_rms / (1 - gain) if a["gainn"] and gain < 1 else float("nan")
+        # p and q turn out to be near-orthogonal (cos ~ 0), so their magnitudes add
+        # in quadrature: e*^2 = (gain * e*)^2 + q^2  =>  e* = q / sqrt(1 - gain^2).
+        # gain >= 1 means no fixed point exists and the error keeps accumulating.
+        if a["gainn"] and gain < 1:
+            implied = q_rms / math.sqrt(1 - gain * gain)
+            implied_linear = q_rms / (1 - gain)
+        else:
+            implied = float("nan")
+            implied_linear = float("nan")
         rows.append({
             "model": "ouro_1.4b",
             "quant": label,
@@ -351,9 +364,162 @@ def decompose_config(model, targets, stash, label, cfg, args, eval_tokens, devic
             "propagation_gain": gain,
             "cos_p_q": a["pq"] / a["pqn"] if a["pqn"] else float("nan"),
             "implied_fixed_point": implied,
+            "implied_fixed_point_aligned": implied_linear,
             "split_max_abs_residual": a["consist"] / n,
         })
     return rows
+
+
+def _tok_cos(a, b):
+    """Mean per-token cosine between two (B, S, D) tensors."""
+    af = a.reshape(-1, a.shape[-1])
+    bf = b.reshape(-1, b.shape[-1])
+    c = (af * bf).sum(-1) / (
+        af.norm(dim=-1).clamp(min=1e-8) * bf.norm(dim=-1).clamp(min=1e-8)
+    )
+    return float(c.mean().item())
+
+
+def _tok_norm(x):
+    return float(x.reshape(-1, x.shape[-1]).norm(dim=-1).mean().item())
+
+
+def jacobian_config(model, targets, stash, label, cfg, args, eval_tokens, device):
+    """Test whether J_t and B_t really are loop-invariant.
+
+    B_t: q_t = F(h_t; Wq) - F(h_t; W) is the injection vector itself, so we
+    compare q_t across loops directly (norm *and* direction).
+
+    J_t: probed by finite differences with the SAME probe vector v at every
+    loop, J_t v ~= F(h_t + v; Wq) - F(h_t; Wq). Comparing J_t v across loops
+    tests operator similarity, which a scalar gain cannot do.
+    """
+    T = args.loops
+    n_probes = args.n_probes
+    delta = args.probe_delta
+    gen = torch.Generator(device="cpu").manual_seed(SEED)
+
+    pair = {}   # (t, t2) -> accumulators
+    per = [dict(qn=0.0, hn=0.0, drift=0.0, jvn=0.0, n=0) for _ in range(T)]
+    nb = 0
+    probe_norm_sum = 0.0   # ||v||, one global scale per batch
+
+    with torch.inference_mode():
+        for ids in iter_batches(eval_tokens, args.batch_size, device):
+            ctx = make_loop_ctx(model, ids)
+            # full-precision trajectory
+            restore_weights(targets, stash)
+            h_fp = []
+            h = ctx["embed"]
+            for _ in range(T):
+                h = one_loop(model, h, ctx)
+                h_fp.append(h)
+            # The operator used at loop k acts on the state entering loop k, so
+            # base[k] is the embedding for k = 0 and h_fp[k-1] afterwards. That
+            # keeps q and J defined for every one of the T loops.
+            base = [ctx["embed"]] + h_fp[:-1]
+
+            # quantized weights live from here on
+            quantize_in_place(targets, cfg, args.group_size)
+            base_q = [one_loop(model, base[t], ctx) for t in range(T)]
+            q = [base_q[t] - h_fp[t] for t in range(T)]
+
+            # one probe scale for all loops so the same v is reused everywhere
+            ref = sum(_tok_norm(x) for x in base) / T
+            probe_norm_sum += delta * ref
+            jv = [[None] * T for _ in range(n_probes)]
+            for k in range(n_probes):
+                v = torch.randn(h_fp[0].shape, generator=gen, dtype=torch.float32)
+                v = v.to(device)
+                v = v * (delta * ref / _tok_norm(v))
+                for t in range(T):
+                    jv[k][t] = (one_loop(model, base[t] + v, ctx) - base_q[t]).float()
+
+            nb += 1
+            for t in range(T):
+                p = per[t]
+                p["hn"] += _tok_norm(h_fp[t])
+                p["qn"] += _tok_norm(q[t].float())
+                p["basen"] = p.get("basen", 0.0) + _tok_norm(base[t])
+                if t > 0:
+                    p["drift"] += _tok_norm(h_fp[t] - h_fp[t - 1]) / max(
+                        _tok_norm(h_fp[t - 1]), 1e-8)
+                p["jvn"] += sum(_tok_norm(jv[k][t]) for k in range(n_probes)) / n_probes
+                p["n"] += 1
+
+            for t in range(T):
+                for t2 in range(T):
+                    key = (t, t2)
+                    a = pair.setdefault(key, dict(ch=0.0, cq=0.0, cj=0.0,
+                                                  rj=0.0, n=0, nq=0))
+                    a["ch"] += _tok_cos(h_fp[t], h_fp[t2])
+                    a["cj"] += sum(_tok_cos(jv[k][t], jv[k][t2])
+                                   for k in range(n_probes)) / n_probes
+                    a["rj"] += sum(
+                        _tok_norm(jv[k][t]) / max(_tok_norm(jv[k][t2]), 1e-8)
+                        for k in range(n_probes)) / n_probes
+                    a["n"] += 1
+                    a["cq"] += _tok_cos(q[t].float(), q[t2].float())
+                    a["nq"] += 1
+
+    per_rows = []
+    for t in range(T):
+        p = per[t]
+        n = max(p["n"], 1)
+        probe_norm = probe_norm_sum / max(nb, 1)
+        per_rows.append({
+            "model": "ouro_1.4b",
+            "quant": label,
+            "loop": t + 1,
+            "h_norm": p["hn"] / n,
+            "base_norm": p.get("basen", 0.0) / n,
+            "q_norm": p["qn"] / n,
+            "hidden_drift": p["drift"] / n if t > 0 else float("nan"),
+            # ||J_t v|| / ||v||: the same probe v is reused at every loop
+            "jacobian_probe_gain": (p["jvn"] / n) / probe_norm
+            if probe_norm > 0 else float("nan"),
+        })
+
+    pair_rows = []
+    for (t, t2), a in sorted(pair.items()):
+        n = max(a["n"], 1)
+        pair_rows.append({
+            "model": "ouro_1.4b",
+            "quant": label,
+            "loop_a": t + 1,
+            "loop_b": t2 + 1,
+            "cos_h": a["ch"] / n,
+            "cos_q": a["cq"] / a["nq"] if a["nq"] else float("nan"),
+            "cos_Jv": a["cj"] / n,
+            "ratio_Jv_norm": a["rj"] / n,
+        })
+    return per_rows, pair_rows
+
+
+def plot_jacobian(pair_rows, per_rows, path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    labels = _labels(pair_rows)
+    fig, axes = plt.subplots(2, len(labels), figsize=(4.6 * len(labels), 8),
+                             squeeze=False)
+    for j, lab in enumerate(labels):
+        sel = [r for r in pair_rows if r["quant"] == lab]
+        T = max(r["loop_a"] for r in sel)
+        titles = {"cos_Jv": "cos(J_t v, J_t' v)", "cos_q": "cos(q_t, q_t')"}
+        for i, key in enumerate(("cos_Jv", "cos_q")):
+            M = np.full((T, T), np.nan)
+            for r in sel:
+                M[r["loop_a"] - 1, r["loop_b"] - 1] = r[key]
+            ax = axes[i][j]
+            im = ax.imshow(M, vmin=0, vmax=1, cmap="viridis",
+                           extent=[0.5, T + 0.5, T + 0.5, 0.5])
+            ax.set_title(f"{lab}: {titles[key]}")
+            ax.set_xlabel("loop t'")
+            ax.set_ylabel("loop t")
+            fig.colorbar(im, ax=ax, fraction=0.046)
+    fig.suptitle("Ouro-1.4B: is the error dynamics really loop-invariant?")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
 
 
 def plot_decomp(rows, path):
@@ -621,6 +787,39 @@ def run():
     print(f"quant targets: {len(targets)} Linears", flush=True)
     stash = stash_weights(targets)
 
+    if args.jacobian:
+        per_all, pair_all = [], []
+        for label in args.configs:
+            cfg = QUANT_CONFIGS[label]
+            print(f"=== jacobian/injection invariance {label} ===", flush=True)
+            per_rows, pair_rows = jacobian_config(
+                model, targets, stash, label, cfg, args, eval_tokens, device)
+            for r in per_rows:
+                print(f"  loop {r['loop']}: |h|={r['h_norm']:.3f} "
+                      f"|q|={r['q_norm']:.4f} drift={r['hidden_drift']:.4f} "
+                      f"probe_gain={r['jacobian_probe_gain']:.4f}", flush=True)
+            print("  cross-loop similarity (loops >= 2, excluding diagonal):", flush=True)
+            off = [r for r in pair_rows if r["loop_a"] != r["loop_b"]
+                   and r["loop_a"] >= 2 and r["loop_b"] >= 2]
+            if off:
+                import statistics as st
+                print(f"    cos(J_t v, J_t' v): mean={st.mean(r['cos_Jv'] for r in off):.4f} "
+                      f"min={min(r['cos_Jv'] for r in off):.4f}", flush=True)
+                cq = [r["cos_q"] for r in off if not math.isnan(r["cos_q"])]
+                if cq:
+                    print(f"    cos(q_t, q_t'):     mean={sum(cq)/len(cq):.4f} "
+                          f"min={min(cq):.4f}", flush=True)
+                print(f"    cos(h_t, h_t'):     mean={st.mean(r['cos_h'] for r in off):.4f} "
+                      f"min={min(r['cos_h'] for r in off):.4f}", flush=True)
+            per_all.extend(per_rows)
+            pair_all.extend(pair_rows)
+            write_csv(out_dir / "ouro_invariance_per_loop.csv", per_all)
+            write_csv(out_dir / "ouro_invariance_pairs.csv", pair_all)
+        restore_weights(targets, stash)
+        plot_jacobian(pair_all, per_all, out_dir / "plots" / "ouro_invariance.png")
+        print("done (jacobian)", flush=True)
+        return
+
     if args.decompose:
         dec_rows = []
         for label in args.configs:
@@ -633,6 +832,7 @@ def run():
                       f"|q|={r['q_rms']:.4f} gain={r['propagation_gain']:.4f} "
                       f"cos(p,q)={r['cos_p_q']:.4f} "
                       f"implied_e*={r['implied_fixed_point']:.4f} "
+                      f"(measured |e|={r['e_rms']:.4f}) "
                       f"resid={r['split_max_abs_residual']:.2e}", flush=True)
             dec_rows.extend(rows)
             write_csv(out_dir / "ouro_error_decomposition.csv", dec_rows)

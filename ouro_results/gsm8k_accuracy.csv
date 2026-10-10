@@ -1,0 +1,13 @@
+model,quant,loops,n_problems,accuracy,n_correct
+ouro_1.4b,FP,2,200,0.7,140
+ouro_1.4b,INT8,2,200,0.68,136
+ouro_1.4b,INT4,2,200,0.56,112
+ouro_1.4b,FP8,2,200,0.7,140
+ouro_1.4b,FP,4,200,0.79,158
+ouro_1.4b,INT8,4,200,0.78,156
+ouro_1.4b,INT4,4,200,0.73,146
+ouro_1.4b,FP8,4,200,0.805,161
+ouro_1.4b,FP,8,200,0.785,157
+ouro_1.4b,INT8,8,200,0.765,153
+ouro_1.4b,INT4,8,200,0.6,120
+ouro_1.4b,FP8,8,200,0.725,145
